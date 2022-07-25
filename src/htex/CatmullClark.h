@@ -44,7 +44,7 @@ typedef struct {
     int32_t uvID;
 } cc_Halfedge;
 
-// specialized halfedge data for quad-only meshes
+// specialized halfedge data for semi-regular (e.g., quad-only) meshes
 typedef struct {
     int32_t twinID;
     int32_t edgeID;
@@ -52,7 +52,7 @@ typedef struct {
 #ifndef CC_DISABLE_UV
     int32_t uvID;
 #endif
-} cc_Halfedge_Quad;
+} cc_Halfedge_SemiRegular;
 
 // mesh data-structure
 typedef struct {
@@ -136,7 +136,7 @@ CCDEF int32_t ccm_PrevVertexHalfedgeID(const cc_Mesh *mesh, int32_t halfedgeID);
 typedef struct {
     const cc_Mesh *cage;
     cc_VertexPoint *vertexPoints;
-    cc_Halfedge_Quad *halfedges;
+    cc_Halfedge_SemiRegular *halfedges;
     cc_Crease *creases;
     int32_t maxDepth;
 } cc_Subd;
@@ -706,7 +706,7 @@ CCDEF cc_VertexUv ccm_Uv(const cc_Mesh *mesh, int32_t uvID)
  * VertexToHalfedgeID -- Returns a halfedge ID that carries a given vertex
  *
  */
-CCDEF int32_t ccm_VertexPointToHalfedgeID(const cc_Mesh *mesh, int32_t vertexID)
+CCDEF int32_t ccm_VertexToHalfedgeID(const cc_Mesh *mesh, int32_t vertexID)
 {
     return mesh->vertexToHalfedgeIDs[vertexID];
 }
@@ -955,13 +955,13 @@ CCDEF cc_Subd *ccs_Create(const cc_Mesh *cage, int32_t maxDepth)
     const int32_t halfedgeCount = ccs_CumulativeHalfedgeCountAtDepth(cage, maxDepth);
     const int32_t creaseCount = ccs_CumulativeCreaseCountAtDepth(cage, maxDepth);
     const int32_t vertexCount = ccs_CumulativeVertexCountAtDepth(cage, maxDepth);
-    const size_t halfedgeByteCount = halfedgeCount * sizeof(cc_Halfedge_Quad);
+    const size_t halfedgeByteCount = halfedgeCount * sizeof(cc_Halfedge_SemiRegular);
     const size_t creaseByteCount = creaseCount * sizeof(cc_Crease);
     const size_t vertexPointByteCount = vertexCount * sizeof(cc_VertexPoint);
     cc_Subd *subd = (cc_Subd *)CC_MALLOC(sizeof(*subd));
 
     subd->maxDepth = maxDepth;
-    subd->halfedges = (cc_Halfedge_Quad *)CC_MALLOC(halfedgeByteCount);
+    subd->halfedges = (cc_Halfedge_SemiRegular *)CC_MALLOC(halfedgeByteCount);
     subd->creases = (cc_Crease *)CC_MALLOC(creaseByteCount);
     subd->vertexPoints = (cc_VertexPoint *)CC_MALLOC(vertexPointByteCount);
     subd->cage = cage;
@@ -1061,7 +1061,7 @@ ccs_CreasePrevID(const cc_Subd *subd, int32_t edgeID, int32_t depth)
  * Halfedge data accessors
  *
  */
-static const cc_Halfedge_Quad *
+static const cc_Halfedge_SemiRegular *
 ccs__Halfedge(const cc_Subd *subd, int32_t halfedgeID, int32_t depth)
 {
     CC_ASSERT(depth <= ccs_MaxDepth(subd) && depth > 0);
@@ -1328,7 +1328,7 @@ ccs__VertexToHalfedgeID_First(const cc_Mesh *cage, int32_t vertexID)
 
     } else /* [0, V) */ {
 
-        return 4 * ccm_VertexPointToHalfedgeID(cage, vertexID) + 0;
+        return 4 * ccm_VertexToHalfedgeID(cage, vertexID) + 0;
     }
 }
 
@@ -1669,7 +1669,7 @@ static void ccs__CageVertexPoints_Gather(cc_Subd *subd)
 
 CC_PARALLEL_FOR
     for (int32_t vertexID = 0; vertexID < vertexCount; ++vertexID) {
-        const int32_t halfedgeID = ccm_VertexPointToHalfedgeID(cage, vertexID);
+        const int32_t halfedgeID = ccm_VertexToHalfedgeID(cage, vertexID);
         const int32_t edgeID = ccm_HalfedgeEdgeID(cage, halfedgeID);
         const int32_t faceID = ccm_HalfedgeFaceID(cage, halfedgeID);
         const cc_VertexPoint newEdgePoint = newEdgePoints[edgeID];
@@ -1777,7 +1777,7 @@ static void ccs__CreasedCageVertexPoints_Gather(cc_Subd *subd)
 
 CC_PARALLEL_FOR
     for (int32_t vertexID = 0; vertexID < vertexCount; ++vertexID) {
-        const int32_t halfedgeID = ccm_VertexPointToHalfedgeID(cage, vertexID);
+        const int32_t halfedgeID = ccm_VertexToHalfedgeID(cage, vertexID);
         const int32_t edgeID = ccm_HalfedgeEdgeID(cage, halfedgeID);
         const int32_t prevID = ccm_HalfedgePrevID(cage, halfedgeID);
         const int32_t prevEdgeID = ccm_HalfedgeEdgeID(cage, prevID);
@@ -2697,7 +2697,7 @@ static void ccs__RefineCageHalfedges(cc_Subd *subd)
     const int32_t edgeCount = ccm_EdgeCount(cage);
     const int32_t faceCount = ccm_FaceCount(cage);
     const int32_t halfedgeCount = ccm_HalfedgeCount(cage);
-    cc_Halfedge_Quad *halfedgesOut = subd->halfedges;
+    cc_Halfedge_SemiRegular *halfedgesOut = subd->halfedges;
 
 CC_PARALLEL_FOR
     for (int32_t halfedgeID = 0; halfedgeID < halfedgeCount; ++halfedgeID) {
@@ -2711,7 +2711,7 @@ CC_PARALLEL_FOR
         const int32_t vertexID = ccm_HalfedgeVertexID(cage, halfedgeID);
         const int32_t twinNextID =
             twinID >= 0 ? ccm_HalfedgeNextID(cage, twinID) : -1;
-        cc_Halfedge_Quad *newHalfedges[4] = {
+        cc_Halfedge_SemiRegular *newHalfedges[4] = {
             &halfedgesOut[(4 * halfedgeID + 0)],
             &halfedgesOut[(4 * halfedgeID + 1)],
             &halfedgesOut[(4 * halfedgeID + 2)],
@@ -2754,7 +2754,7 @@ static void ccs__RefineHalfedges(cc_Subd *subd, int32_t depth)
     const int32_t edgeCount = ccm_EdgeCountAtDepth_Fast(cage, depth);
     const int32_t faceCount = ccm_FaceCountAtDepth_Fast(cage, depth);
     const int32_t stride = ccs_CumulativeHalfedgeCountAtDepth(cage, depth);
-    cc_Halfedge_Quad *halfedgesOut = &subd->halfedges[stride];
+    cc_Halfedge_SemiRegular *halfedgesOut = &subd->halfedges[stride];
 
 CC_PARALLEL_FOR
     for (int32_t halfedgeID = 0; halfedgeID < halfedgeCount; ++halfedgeID) {
@@ -2767,7 +2767,7 @@ CC_PARALLEL_FOR
         const int32_t prevEdgeID = ccs_HalfedgeEdgeID(subd, prevID, depth);
         const int32_t prevTwinID = ccs_HalfedgeTwinID(subd, prevID, depth);
         const int32_t twinNextID = ccm_HalfedgeNextID_Quad(twinID);
-        cc_Halfedge_Quad *newHalfedges[4] = {
+        cc_Halfedge_SemiRegular *newHalfedges[4] = {
             &halfedgesOut[(4 * halfedgeID + 0)],
             &halfedgesOut[(4 * halfedgeID + 1)],
             &halfedgesOut[(4 * halfedgeID + 2)],
@@ -2826,7 +2826,7 @@ static void ccs__RefineCageVertexUvs(cc_Subd *subd)
 {
     const cc_Mesh *cage = subd->cage;
     const int32_t halfedgeCount = ccm_HalfedgeCount(cage);
-    cc_Halfedge_Quad *halfedgesOut = subd->halfedges;
+    cc_Halfedge_SemiRegular *halfedgesOut = subd->halfedges;
 
 CC_PARALLEL_FOR
     for (int32_t halfedgeID = 0; halfedgeID < halfedgeCount; ++halfedgeID) {
@@ -2838,7 +2838,7 @@ CC_PARALLEL_FOR
         cc_VertexUv edgeUv, prevEdgeUv;
         cc_VertexUv faceUv = uv;
         int32_t m = 1;
-        cc_Halfedge_Quad *newHalfedges[4] = {
+        cc_Halfedge_SemiRegular *newHalfedges[4] = {
             &halfedgesOut[(4 * halfedgeID + 0)],
             &halfedgesOut[(4 * halfedgeID + 1)],
             &halfedgesOut[(4 * halfedgeID + 2)],
@@ -2880,7 +2880,7 @@ static void ccs__RefineVertexUvs(cc_Subd *subd, int32_t depth)
     const cc_Mesh *cage = subd->cage;
     const int32_t halfedgeCount = ccm_HalfedgeCountAtDepth(cage, depth);
     const int32_t stride = ccs_CumulativeHalfedgeCountAtDepth(cage, depth);
-    cc_Halfedge_Quad *halfedgesOut = &subd->halfedges[stride];
+    cc_Halfedge_SemiRegular *halfedgesOut = &subd->halfedges[stride];
 
 CC_PARALLEL_FOR
     for (int32_t halfedgeID = 0; halfedgeID < halfedgeCount; ++halfedgeID) {
@@ -2891,7 +2891,7 @@ CC_PARALLEL_FOR
         const cc_VertexUv prevUv = ccs_HalfedgeVertexUv(subd, prevID, depth);
         cc_VertexUv edgeUv, prevEdgeUv;
         cc_VertexUv faceUv = uv;
-        cc_Halfedge_Quad *newHalfedges[4] = {
+        cc_Halfedge_SemiRegular *newHalfedges[4] = {
             &halfedgesOut[(4 * halfedgeID + 0)],
             &halfedgesOut[(4 * halfedgeID + 1)],
             &halfedgesOut[(4 * halfedgeID + 2)],
@@ -3094,7 +3094,7 @@ static int64_t ccm__Magic()
     const union {
         char    string[8];
         int64_t numeric;
-    } magic = {.string = {'c', 'c', '_', 'M', 'e', 's', 'h', '1'}};
+    } magic = {{'c', 'c', '_', 'M', 'e', 's', 'h', '1'}};
 
     return magic.numeric;
 }
